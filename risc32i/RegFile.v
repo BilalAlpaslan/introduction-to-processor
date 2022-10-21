@@ -21,7 +21,7 @@ module RegFile(
     assign R1_DATA = REGISTERS[R1];
     assign R2_DATA = REGISTERS[R2];
 
-    always @(*) begin // TODO: learn diff posedge CLK ?
+    always @(*) begin
         if (WRITE_ENABLE == 1 && RD != 0)
             REGISTERS[RD] <= RD_DATA;
     end
