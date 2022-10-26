@@ -2,7 +2,6 @@
   //  TODO: one encoder module for all size
 // )
 
-
 module Encoder_4 (
     input [3:0] in,
     output reg [1:0] out
@@ -12,7 +11,7 @@ module Encoder_4 (
   end
 
   always @(in) begin
-    case (in)
+    casex (in)
       4'b1xxx : out = 3;
       4'b01xx : out = 2;
       4'b001x : out = 1;
