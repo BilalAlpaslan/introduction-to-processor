@@ -53,7 +53,7 @@ module tb_RAM;
     end
 
     // to run:
-    //    iverilog -g2005-sv -I ../src/ -o output/ram.out tb_RAM.v && vvp output/ram.ou
+    //    iverilog -g2005-sv -I ../src/ -o output/ram.out tb_RAM.v && vvp output/ram.out
 
     // initial begin
     //     $dumpfile("vcd/ram.vcd");
