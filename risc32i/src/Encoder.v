@@ -1,21 +1,22 @@
-module N_encoder #(
-    parameter N = 4
-)
-(
-    input [N-1:0] in,
-    output reg [N-1:0] out
-);
-    initial begin
-        out <= 0;
-    end
+// module N_encoder #(
+//     parameter N = 4
+// )
+// (
+//     input [N-1:0] in,
+//     output reg [N-1:0] out
+// );
+//     initial begin
+//         out <= 0;
+//     end
 
-    always @(in) begin
-        case (in)
-            // todo: generate this
-        endcase
-    end
+//     always @(in) begin
+//         casex (in)
+//             N'b0: out <= N'b0;
+//             // todo: generate this
+//         endcase
+//     end
 
-endmodule
+// endmodule
 
 module Encoder_4 (
     input [3:0] in,
