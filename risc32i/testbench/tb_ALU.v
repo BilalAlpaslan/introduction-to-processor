@@ -42,15 +42,15 @@ module tb_ALU;
 
         // sra (Shift Right Arithmetic)
         a = -8;         b = 2;      op = 7; #20;
-        $display("a = %d, b = %d, op = %d, result = %d, isEqual = %d", a, b, op, result, isEqual);
+        $display("a = %d, b = %d, op = %d, result = %d, isEqual = %d", $signed(a), b, op, $signed(result), isEqual);
 
         // slt (Set Less Than)
         a = -1;         b = 9;      op = 8; #20;
-        $display("a = %d, b = %d, op = %d, result = %d, isEqual = %d", a, b, op, result, isEqual);
+        $display("a = %d, b = %d, op = %d, result = %d, isEqual = %d", $signed(a), b, op, result, isEqual);
 
         // sltu (Set Less Than Unsigned)
         a = -1;         b = 9;      op = 9; #20;
-        $display("a = %d, b = %d, op = %d, result = %d, isEqual = %d", a, b, op, result, isEqual);
+        $display("a = %d, b = %d, op = %d, result = %d, isEqual = %d", $signed(a), b, op, result, isEqual);
     end
 
     // to run:
