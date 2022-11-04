@@ -33,4 +33,57 @@ module CPU (
     integer EXECUTE     = 1;
     integer MEMORY      = 2;
     integer WRITEBACK   = 3;
+
+
+    // == ==========================================================
+    //                                  PIPELINING
+    // == ==========================================================
+
+    //-- Fetch Stage
+    reg [9:0]  PC = 0;
+    assign INSTRUCTION_ADDR = PC;
+
+    always @(posedge CLK) begin
+        PC <= PC + 1;
+    end
+
+    //-- Decode Stage
+    reg [9:0]  PC_DECODE_2 = 0;
+    reg[31:0]  INSTRUCTION_DECODE_2 = 0;
+
+    always @(posedge CLK) begin
+        PC_DECODE_2 <= PC;
+        INSTRUCTION_DECODE_2 <= INSTRUCTION;
+    end
+
+    //-- Execute Stage
+    reg [9:0]  PC_EXECUTE_3 = 0;
+    reg[31:0]  INSTRUCTION_EXECUTE_3 = 0;
+
+    always @(posedge CLK) begin
+        PC_EXECUTE_3 <= PC_DECODE_2;
+        INSTRUCTION_EXECUTE_3 <= INSTRUCTION_DECODE_2;
+    end
+
+    //-- Memory Stage
+    reg [9:0]  PC_MEMORY_4 = 0;
+    reg[31:0]  INSTRUCTION_MEMORY_4 = 0;
+    reg [31:0] ALU_OUT_MEMORY_4 = 0;
+
+    always @(posedge CLK) begin
+        PC_MEMORY_4 <= PC_EXECUTE_3;
+        INSTRUCTION_MEMORY_4 <= INSTRUCTION_EXECUTE_3;
+        ALU_OUT_MEMORY_4 <= ALU_OUT;
+    end
+
+    //-- Writeback Stage
+    reg[31:0]  INSTRUCTION_WRITEBACK_5 = 0;
+    reg [31:0] REG_WRITE_DATA_WRITEBACK_5 = 0;
+    reg [31:0] RAM_READ_DATA_WRITEBACK_5 = 0;
+
+    always @(posedge CLK) begin
+        INSTRUCTION_WRITEBACK_5 <= INSTRUCTION_MEMORY_4;
+        RAM_READ_DATA_WRITEBACK_5  <= RAM_READ_DATA;
+        REG_WRITE_DATA_WRITEBACK_5 <= PC_MEMORY_4 + 4;
+    end
 endmodule
