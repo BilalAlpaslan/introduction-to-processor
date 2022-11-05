@@ -41,7 +41,7 @@ module CPU (
 
     //-- Fetch Stage
     reg [9:0]  PC = 0;
-    assign INSTRUCTION_ADDR = PC;
+    assign INSTRUCTION_ADDR = PC; // assign INSTRUCTION_ADDR = PC >> 2; ???
 
     always @(posedge CLK) begin
         PC <= PC + 1;
