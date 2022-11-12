@@ -1,16 +1,20 @@
-
+`include "ALU.v"
+`include "RegFile.v"
+`include "ImmediateExtractor.v"
+`include "Encoder.v"
 
 module CPU (
     input [31:0] RAM_READ_DATA,
     input [31:0] INSTRUCTION,
     input CLK,
 
-    output [9:0] RAM_ADDR,         
+    output [9:0] RAM_ADDR,          // 10-bit Size RAM
     output reg [31:0] RAM_WRITE_DATA,
     output RAM_WRITE_ENABLE,
-    output [9:0] INSTRUCTION_ADDR,  
+    output [9:0] INSTRUCTION_ADDR,   // 10-bit Size ROM
     output reg [31:0] GPIO
 );
+    // CONSTANTS:
     // -- OPCODE DEFINES:
     integer OP_R_TYPE           = 7'h33;
     integer OP_I_TYPE_LOAD      = 7'h03;
@@ -34,13 +38,14 @@ module CPU (
     integer MEMORY      = 2;
     integer WRITEBACK   = 3;
 
+
     // WIRE DEFINITIONS:
-    wire [6:0] OPCODE   = INSTRUCTION[6:0];
-    wire [4:0] RD       = INSTRUCTION[11:7];
-    wire [2:0] FUNCT3   = INSTRUCTION[14:12];
-    wire [4:0] R1       = INSTRUCTION[19:15];
-    wire [4:0] R2       = INSTRUCTION[24:20];
-    wire [6:0] FUNCT7   = INSTRUCTION[31:25];
+    wire [6:0] OPCODE   = INSTRUCTION_EXECUTE_3[6:0];
+    wire [4:0] RD       = INSTRUCTION_WRITEBACK_5[11:7];
+    wire [2:0] FUNCT3   = INSTRUCTION_EXECUTE_3[14:12];
+    wire [4:0] R1       = INSTRUCTION_EXECUTE_3[19:15];
+    wire [4:0] R2       = INSTRUCTION_EXECUTE_3[24:20];
+    wire [6:0] FUNCT7   = INSTRUCTION_EXECUTE_3[31:25];
 
     wire R_TYPE         = OPCODE == OP_R_TYPE;
     wire I_TYPE_LOAD    = OPCODE == OP_I_TYPE_LOAD;
@@ -80,9 +85,9 @@ module CPU (
     wire I_ori      = I_TYPE_OTHER && FUNCT3 == 3'h6;
     wire I_andi     = I_TYPE_OTHER && FUNCT3 == 3'h7;
     // ---- Load
-    wire I_lb       = INSTRUCTION[6:0] == OP_I_TYPE_LOAD && INSTRUCTION[14:12] == 3'h0;
-    wire I_lh       = INSTRUCTION[6:0] == OP_I_TYPE_LOAD && INSTRUCTION[14:12] == 3'h1;
-    wire I_lw       = INSTRUCTION[6:0] == OP_I_TYPE_LOAD && INSTRUCTION[14:12] == 3'h2;
+    wire I_lb       = INSTRUCTION_MEMORY_4[6:0] == OP_I_TYPE_LOAD && INSTRUCTION_MEMORY_4[14:12] == 3'h0;
+    wire I_lh       = INSTRUCTION_MEMORY_4[6:0] == OP_I_TYPE_LOAD && INSTRUCTION_MEMORY_4[14:12] == 3'h1;
+    wire I_lw       = INSTRUCTION_MEMORY_4[6:0] == OP_I_TYPE_LOAD && INSTRUCTION_MEMORY_4[14:12] == 3'h2;
     // ---- Jump
     wire I_jalr     = I_TYPE_JUMP;
 
@@ -94,9 +99,9 @@ module CPU (
 
 
     // -- Store Types (S-Type)
-    wire S_sb       = INSTRUCTION[6:0] == OP_S_TYPE && INSTRUCTION[14:12] == 3'h0;
-    wire S_sh       = INSTRUCTION[6:0] == OP_S_TYPE && INSTRUCTION[14:12] == 3'h1;
-    wire S_sw       = INSTRUCTION[6:0] == OP_S_TYPE && INSTRUCTION[14:12] == 3'h2;
+    wire S_sb       = INSTRUCTION_MEMORY_4[6:0] == OP_S_TYPE && INSTRUCTION_MEMORY_4[14:12] == 3'h0;
+    wire S_sh       = INSTRUCTION_MEMORY_4[6:0] == OP_S_TYPE && INSTRUCTION_MEMORY_4[14:12] == 3'h1;
+    wire S_sw       = INSTRUCTION_MEMORY_4[6:0] == OP_S_TYPE && INSTRUCTION_MEMORY_4[14:12] == 3'h2;
 
 
     // -- Branch Types (B-Type)
@@ -108,8 +113,15 @@ module CPU (
     wire B_bgeu     = B_TYPE && FUNCT3 == 7;
 
     // -- PC Get Data From ALU Switch
-    wire signed [31:0] R1_DATA;
-    wire signed [31:0] R2_DATA;
+    wire signed [31:0] R1_DATA =    DATA_DEPENDENCY_HAZARD_R1 ? ALU_OUT_MEMORY_4 :
+                                    DATA_DEPENDENCY_HAZARD_R1_WRITEBACK ?
+                                        (REG_WRITEBACK_SELECTION == 3 ? RAM_READ_DATA_WRITEBACK_5 : REG_WRITE_DATA_WRITEBACK_5)
+                                        : R1_DATA_EXECUTE_3;
+    wire signed [31:0] R2_DATA =    DATA_DEPENDENCY_HAZARD_R2 ? ALU_OUT_MEMORY_4 :
+                                    DATA_DEPENDENCY_HAZARD_R2_WRITEBACK ?
+                                        (REG_WRITEBACK_SELECTION == 3 ? RAM_READ_DATA_WRITEBACK_5 : REG_WRITE_DATA_WRITEBACK_5)
+                                        : R2_DATA_EXECUTE_3;
+    
     wire [31:0] R1_DATA_UNSIGNED = R1_DATA;
     wire [31:0] R2_DATA_UNSIGNED = R2_DATA;
 
@@ -124,8 +136,8 @@ module CPU (
                         ;
     
     // -- RAM Read & Write Enable Pins
-    assign RAM_WRITE_ENABLE     = INSTRUCTION[6:0] == OP_S_TYPE;
-    assign RAM_ADDR             = ALU_OUT[9:0];
+    assign RAM_WRITE_ENABLE     = INSTRUCTION_MEMORY_4[6:0] == OP_S_TYPE;
+    assign RAM_ADDR             = ALU_OUT_MEMORY_4[9:0];
 
 
     // -- PIPELINING HAZARDS
@@ -134,6 +146,55 @@ module CPU (
     reg [4:0] R2_PIPELINE[3:0];        // R2 Register of the current stage.
     reg [4:0] RD_PIPELINE[3:0];        // RD Register of the current stage.
     reg [2:0] TYPE_PIPELINE[3:0];      // Instruction Types of the current stage. [R-Type=0, Load=1, Store=2, Immediate or UpperImmediate=3, Branch=4]
+
+    // If R1 depends on the previous RD (or R2 if STORE)
+    wire DATA_DEPENDENCY_HAZARD_R1 =
+                        R1_PIPELINE[EXECUTE] != 0
+                    &&  TYPE_PIPELINE[EXECUTE] != TYPE_UPPERIMMEDIATE
+                    &&  R1_PIPELINE[EXECUTE] == RD_PIPELINE[MEMORY];
+    // If R2 depends on the previous RD (or R2 if STORE)
+    wire DATA_DEPENDENCY_HAZARD_R2 =
+                        R2_PIPELINE[EXECUTE] != 0
+                    &&  TYPE_PIPELINE[EXECUTE] != TYPE_UPPERIMMEDIATE
+                    &&  TYPE_PIPELINE[EXECUTE] != TYPE_IMMEDIATE
+                    &&  R2_PIPELINE[EXECUTE] == RD_PIPELINE[MEMORY];
+    
+    // If R1 depends on the 5th stage RD
+    wire DATA_DEPENDENCY_HAZARD_R1_WRITEBACK =
+                        R1_PIPELINE[EXECUTE] != 0
+                    &&  TYPE_PIPELINE[EXECUTE] != TYPE_UPPERIMMEDIATE
+                    &&  R1_PIPELINE[EXECUTE] == RD_PIPELINE[WRITEBACK];
+    // If R2 depends on the 5th stage RD
+    wire DATA_DEPENDENCY_HAZARD_R2_WRITEBACK =
+                        R2_PIPELINE[EXECUTE] != 0
+                    &&  TYPE_PIPELINE[EXECUTE] != TYPE_UPPERIMMEDIATE
+                    &&  TYPE_PIPELINE[EXECUTE] != TYPE_IMMEDIATE
+                    &&  R2_PIPELINE[EXECUTE] == RD_PIPELINE[WRITEBACK];
+    
+
+    // If the next instruction depends on a Load instruction before, stall one clock.
+    wire LOAD_STALL =
+                        TYPE_PIPELINE[EXECUTE] == TYPE_LOAD
+                    &&  (
+                            (
+                                TYPE_PIPELINE[DECODE] != TYPE_UPPERIMMEDIATE
+                            &&  TYPE_PIPELINE[DECODE] != TYPE_IMMEDIATE
+                            &&  (
+                                    (R1_PIPELINE[DECODE] != 0 && R1_PIPELINE[DECODE] == RD_PIPELINE[EXECUTE])
+                                ||  (R2_PIPELINE[DECODE] != 0 && R2_PIPELINE[DECODE] == RD_PIPELINE[EXECUTE])
+                                )
+                            )
+                        ||  (   
+                                TYPE_PIPELINE[DECODE] == TYPE_IMMEDIATE
+                            &&  R1_PIPELINE[DECODE] != 0
+                            &&  R1_PIPELINE[DECODE] == RD_PIPELINE[EXECUTE]
+                            )
+                        );
+    
+    // If there is a branch instruction, stall for 2 clocks.
+    wire CONTROL_HAZARD_STALL = INSTRUCTION_DECODE_2[6:0] == OP_B_TYPE || INSTRUCTION_EXECUTE_3[6:0] == OP_B_TYPE;
+    
+
 
 
     // COMPONENT DEFINITIONS (IMMEDIATE EXTRACTOR, ALU, REGFILE):
@@ -152,7 +213,9 @@ module CPU (
     assign immediateSelectionInputs[7] = 0;
     Encoder_8 immediateSelectionEncoder(immediateSelectionInputs, IMMEDIATE_SELECTION);
     
-    ImmediateExtractor immediateExtractor(INSTRUCTION, IMMEDIATE_SELECTION, IMMEDIATE_VALUE);
+    ImmediateExtractor immediateExtractor(INSTRUCTION_EXECUTE_3, IMMEDIATE_SELECTION, IMMEDIATE_VALUE);
+
+
 
 
     // -- ALU Operation Selection
@@ -205,7 +268,7 @@ module CPU (
     always @(*) begin
         case(ALU_X1_SEL)
             0: ALU_X1 <= R1_DATA;
-            1: ALU_X1 <= PC;
+            1: ALU_X1 <= PC_EXECUTE_3;
             default: ALU_X1 <= 0;
         endcase
 
@@ -215,6 +278,8 @@ module CPU (
             default: ALU_X2 <= 0;
         endcase
     end
+
+
 
 
     // -- RegFile
@@ -244,63 +309,194 @@ module CPU (
     Encoder_4 writeBackSelectionEncoder(regWritebackSelectionInputs, REG_WRITEBACK_SELECTION);    
 
 
-    wire signed[31:0] R1_DATA;
-    wire signed [31:0] R2_DATA;
+    wire signed[31:0] R1_DATA_EXECUTE_3;
+    wire signed [31:0] R2_DATA_EXECUTE_3;
 
     wire [31:0] REG_WRITE_DATA = REG_WRITEBACK_SELECTION == 3 ? RAM_READ_DATA_WRITEBACK_5 : REG_WRITE_DATA_WRITEBACK_5;
 
-    RegFile regFile(R1, R2, RD, REG_WRITE_DATA, REG_WRITE_ENABLE, R1_DATA, R2_DATA);
+    RegFile regFile(R1, R2, RD, REG_WRITE_DATA, REG_WRITE_ENABLE, R1_DATA_EXECUTE_3, R2_DATA_EXECUTE_3);
 
 
-    // == ==========================================================
-    //                                  PIPELINING
-    // == ==========================================================
 
-    //-- Fetch Stage
-    // reg [9:0]  PC = 0;
-    // assign INSTRUCTION_ADDR = PC; // assign INSTRUCTION_ADDR = PC >> 2; ???
+    // == PIPELINING ==================================================    
+    // -- 1. Stage: Fetch
+    reg [9:0] PC = 0;
+    assign INSTRUCTION_ADDR = PC >> 2;
 
-    // always @(posedge CLK) begin
-    //     PC <= PC + 1;
-    // end
+    always @(posedge CLK) begin
+        if (PC_ALU_SEL == 1) begin
+            PC <= ALU_OUT[9:0];
+        end
+        else begin
+            if (LOAD_STALL == 1 || CONTROL_HAZARD_STALL == 1)
+                PC <= PC; 
+            else
+                PC <= PC + 4;
+        end        
 
-    // //-- Decode Stage
-    // reg [9:0]  PC_DECODE_2 = 0;
-    // reg[31:0]  INSTRUCTION_DECODE_2 = 0;
+        // PIPELINE HAZARD DATA REGISTERS
+        if (CONTROL_HAZARD_STALL == 1) begin
+            R1_PIPELINE[DECODE]      <= 0;
+            R2_PIPELINE[DECODE]      <= 0;
+            RD_PIPELINE[DECODE]      <= 0;
+            TYPE_PIPELINE[DECODE]    <= TYPE_IMMEDIATE;
+        end
+        else begin
+            R1_PIPELINE[DECODE] <= INSTRUCTION[19:15];
+            R2_PIPELINE[DECODE] <= INSTRUCTION[24:20];
+            RD_PIPELINE[DECODE] <= INSTRUCTION[11:7];
 
-    // always @(posedge CLK) begin
-    //     PC_DECODE_2 <= PC;
-    //     INSTRUCTION_DECODE_2 <= INSTRUCTION;
-    // end
+            if (INSTRUCTION[6:0] == OP_R_TYPE) // R-Type
+                TYPE_PIPELINE[DECODE] <= TYPE_REGISTER;
+                
+            else if (INSTRUCTION[6:0] == OP_I_TYPE_LOAD) // Load
+                TYPE_PIPELINE[DECODE] <= TYPE_LOAD;
 
-    // //-- Execute Stage
-    // reg [9:0]  PC_EXECUTE_3 = 0;
-    // reg[31:0]  INSTRUCTION_EXECUTE_3 = 0;
+            else if (INSTRUCTION[6:0] == OP_S_TYPE) // Store
+                TYPE_PIPELINE[DECODE] <= TYPE_STORE;
 
-    // always @(posedge CLK) begin
-    //     PC_EXECUTE_3 <= PC_DECODE_2;
-    //     INSTRUCTION_EXECUTE_3 <= INSTRUCTION_DECODE_2;
-    // end
+            else if (INSTRUCTION[6:0] == OP_I_TYPE_OTHER || INSTRUCTION[6:0] == OP_I_TYPE_JUMP) // Immediate
+                TYPE_PIPELINE[DECODE] <= TYPE_IMMEDIATE;
 
-    // //-- Memory Stage
-    // reg [9:0]  PC_MEMORY_4 = 0;
-    // reg[31:0]  INSTRUCTION_MEMORY_4 = 0;
-    // reg [31:0] ALU_OUT_MEMORY_4 = 0;
+            else if (INSTRUCTION[6:0] == OP_B_TYPE[6:0]) // Branch
+                TYPE_PIPELINE[DECODE] <= TYPE_BRANCH;
+        end
+    end
 
-    // always @(posedge CLK) begin
-    //     PC_MEMORY_4 <= PC_EXECUTE_3;
-    //     INSTRUCTION_MEMORY_4 <= INSTRUCTION_EXECUTE_3;
-    //     ALU_OUT_MEMORY_4 <= ALU_OUT;
-    // end
 
-    // //-- Writeback Stage
-    // reg[31:0]  INSTRUCTION_WRITEBACK_5 = 0;
-    // reg [31:0] REG_WRITE_DATA_WRITEBACK_5 = 0;
-    // reg [31:0] RAM_READ_DATA_WRITEBACK_5 = 0;
+    // -- 2. Stage: Decode
+    reg [9:0] PC_DECODE_2 = 0;
+    reg [31:0] INSTRUCTION_DECODE_2 = 0;
 
-    // always @(posedge CLK) begin
-    //     INSTRUCTION_WRITEBACK_5 <= INSTRUCTION_MEMORY_4;
-    //     RAM_READ_DATA_WRITEBACK_5  <= RAM_READ_DATA;
-    //     REG_WRITE_DATA_WRITEBACK_5 <= PC_MEMORY_4 + 4;
-    // end
+    always @(posedge CLK) begin
+        if (LOAD_STALL == 1) begin
+            INSTRUCTION_DECODE_2 <= INSTRUCTION_DECODE_2;
+            PC_DECODE_2 <= PC_DECODE_2;
+        end
+        else if (CONTROL_HAZARD_STALL == 1) begin
+            INSTRUCTION_DECODE_2 <= 32'h00000013;
+            PC_DECODE_2 <= PC_DECODE_2;
+        end
+        else begin
+            INSTRUCTION_DECODE_2 <= INSTRUCTION;
+            PC_DECODE_2 <= PC;
+        end
+        
+        
+        // Pipeline Type
+        if (INSTRUCTION_DECODE_2[6:0] == OP_R_TYPE) // R-Type
+            TYPE_PIPELINE[EXECUTE] <= TYPE_REGISTER;
+            
+        else if (INSTRUCTION_DECODE_2[6:0] == OP_I_TYPE_LOAD) // Load
+            TYPE_PIPELINE[EXECUTE] <= TYPE_LOAD;
+
+        else if (INSTRUCTION_DECODE_2[6:0] == OP_S_TYPE) // Store
+            TYPE_PIPELINE[EXECUTE] <= TYPE_STORE;
+
+        else if (INSTRUCTION_DECODE_2[6:0] == OP_I_TYPE_OTHER || INSTRUCTION_DECODE_2[6:0] == OP_I_TYPE_JUMP) // Immediate
+            TYPE_PIPELINE[EXECUTE] <= TYPE_IMMEDIATE;
+
+        else if (INSTRUCTION_DECODE_2[6:0] == OP_B_TYPE[6:0]) // Branch
+            TYPE_PIPELINE[EXECUTE] <= TYPE_BRANCH;
+        
+        R1_PIPELINE[EXECUTE] <= INSTRUCTION_DECODE_2[19:15];
+        R2_PIPELINE[EXECUTE] <= INSTRUCTION_DECODE_2[24:20];
+        RD_PIPELINE[EXECUTE] <= INSTRUCTION_DECODE_2[11:7];
+
+        
+        if (LOAD_STALL == 1) begin
+            R1_PIPELINE[EXECUTE]      <= 0;
+            R2_PIPELINE[EXECUTE]      <= 0;
+            RD_PIPELINE[EXECUTE]      <= 0;
+            TYPE_PIPELINE[EXECUTE]    <= TYPE_IMMEDIATE;
+        end
+    end
+
+
+    // -- 3. Stage: Execute
+    reg [9:0] PC_EXECUTE_3 = 0;
+    reg [31:0] INSTRUCTION_EXECUTE_3 = 0;
+
+    always @(posedge CLK) begin
+        if (LOAD_STALL == 1 ) begin
+            INSTRUCTION_EXECUTE_3 <= 32'h00000013; // NOP for Stall
+            PC_EXECUTE_3 <= PC_EXECUTE_3;
+        end
+        else begin
+            PC_EXECUTE_3 <= PC_DECODE_2;
+            INSTRUCTION_EXECUTE_3 <= INSTRUCTION_DECODE_2;
+        end
+
+        if (TYPE_PIPELINE[EXECUTE] == TYPE_STORE && ALU_OUT == 0)
+            GPIO <= R2_DATA; // 0th address is reserved for GPIO
+
+        if (INSTRUCTION_EXECUTE_3[6:0] == OP_R_TYPE) // R-Type
+            TYPE_PIPELINE[MEMORY] <= TYPE_REGISTER;
+            
+        else if (INSTRUCTION_EXECUTE_3[6:0] == OP_I_TYPE_LOAD) // Load
+            TYPE_PIPELINE[MEMORY] <= TYPE_LOAD;
+
+        else if (INSTRUCTION_EXECUTE_3[6:0] == OP_S_TYPE) // Store
+            TYPE_PIPELINE[MEMORY] <= TYPE_STORE;
+
+        else if (INSTRUCTION_EXECUTE_3[6:0] == OP_I_TYPE_OTHER || INSTRUCTION_EXECUTE_3[6:0] == OP_I_TYPE_JUMP) // Immediate
+            TYPE_PIPELINE[MEMORY] <= TYPE_IMMEDIATE;
+
+        else if (INSTRUCTION_EXECUTE_3[6:0] == OP_B_TYPE[6:0]) // Branch
+            TYPE_PIPELINE[MEMORY] <= TYPE_BRANCH;
+        
+        R1_PIPELINE[MEMORY] <= INSTRUCTION_EXECUTE_3[19:15];
+        R2_PIPELINE[MEMORY] <= INSTRUCTION_EXECUTE_3[24:20];
+        RD_PIPELINE[MEMORY] <= INSTRUCTION_EXECUTE_3[11:7];
+    end    
+
+
+    // -- 4. Stage: Memory
+    reg [9:0] PC_MEMORY_4 = 0;
+    reg [31:0] INSTRUCTION_MEMORY_4 = 0;
+    reg [31:0] ALU_OUT_MEMORY_4 = 0;
+
+    always @(posedge CLK) begin
+        INSTRUCTION_MEMORY_4 <= INSTRUCTION_EXECUTE_3;
+        PC_MEMORY_4 <= PC_EXECUTE_3;
+
+        ALU_OUT_MEMORY_4 <= ALU_OUT;
+        RAM_WRITE_DATA <= R2_DATA;
+        
+
+        if (INSTRUCTION_MEMORY_4[6:0] == OP_R_TYPE) // R-Type
+            TYPE_PIPELINE[WRITEBACK] <= TYPE_REGISTER;
+            
+        else if (INSTRUCTION_MEMORY_4[6:0] == OP_I_TYPE_LOAD) // Load
+            TYPE_PIPELINE[WRITEBACK] <= TYPE_LOAD;
+
+        else if (INSTRUCTION_MEMORY_4[6:0] == OP_S_TYPE) // Store
+            TYPE_PIPELINE[WRITEBACK] <= TYPE_STORE;
+
+        else if (INSTRUCTION_MEMORY_4[6:0] == OP_I_TYPE_OTHER|| INSTRUCTION_MEMORY_4[6:0] == OP_I_TYPE_JUMP) // Immediate
+            TYPE_PIPELINE[WRITEBACK] <= TYPE_IMMEDIATE;
+
+        else if (INSTRUCTION_MEMORY_4[6:0] == OP_B_TYPE[6:0]) // Branch
+            TYPE_PIPELINE[WRITEBACK] <= TYPE_BRANCH;
+        
+        R1_PIPELINE[WRITEBACK] <= INSTRUCTION_MEMORY_4[19:15];
+        R2_PIPELINE[WRITEBACK] <= INSTRUCTION_MEMORY_4[24:20];
+        RD_PIPELINE[WRITEBACK] <= INSTRUCTION_MEMORY_4[11:7];
+    end
+
+
+    // -- 5. Stage: WriteBack
+    reg [31:0] INSTRUCTION_WRITEBACK_5 = 0;
+    reg [31:0] REG_WRITE_DATA_WRITEBACK_5 = 0;
+    reg [31:0] RAM_READ_DATA_WRITEBACK_5 = 0;
+    
+    always @(posedge CLK) begin
+        INSTRUCTION_WRITEBACK_5 <= INSTRUCTION_MEMORY_4;
+        RAM_READ_DATA_WRITEBACK_5 <= RAM_READ_DATA;
+
+        case (REG_WRITEBACK_SELECTION)
+            1: REG_WRITE_DATA_WRITEBACK_5 <= ALU_OUT_MEMORY_4;
+            2: REG_WRITE_DATA_WRITEBACK_5 <= PC_MEMORY_4 + 4;
+        endcase
+    end
 endmodule
