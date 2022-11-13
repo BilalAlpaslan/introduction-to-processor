@@ -38,6 +38,8 @@ module CPU (
     integer MEMORY      = 2;
     integer WRITEBACK   = 3;
 
+    reg [31:0] INSTRUCTION_EXECUTE_3 = 0;
+
 
     // WIRE DEFINITIONS:
     wire [6:0] OPCODE   = INSTRUCTION_EXECUTE_3[6:0];
@@ -403,7 +405,7 @@ module CPU (
         R2_PIPELINE[EXECUTE] <= INSTRUCTION_DECODE_2[24:20];
         RD_PIPELINE[EXECUTE] <= INSTRUCTION_DECODE_2[11:7];
 
-        
+
         if (LOAD_STALL == 1) begin
             R1_PIPELINE[EXECUTE]      <= 0;
             R2_PIPELINE[EXECUTE]      <= 0;
@@ -415,7 +417,6 @@ module CPU (
 
     // -- 3. Stage: Execute
     reg [9:0] PC_EXECUTE_3 = 0;
-    reg [31:0] INSTRUCTION_EXECUTE_3 = 0;
 
     always @(posedge CLK) begin
         if (LOAD_STALL == 1 ) begin
