@@ -7,7 +7,7 @@ module ALU(
     output isEqual
 );
 
-    wire signed [31:0] X_signed = X; // why we need signed version?
+    wire signed [31:0] X_signed = X;
     wire signed [31:0] Y_signed = Y;
 
     assign isEqual = X == Y;
